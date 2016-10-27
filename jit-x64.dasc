@@ -22,6 +22,41 @@
 #define Dst &state
 #define MAX_NESTING 256
 
+int continuous_count(char *p)
+{
+    char *ptr = p;
+    int count = 0;
+    while (*ptr == *p) {
+        count++;
+        ptr++;
+    }
+    return count;
+}
+
+int check_loops(char *p,int *index,int *mult)
+{
+    int res,offset = 0,_index = 0;
+    if (*(p+1) != '-') return -1;
+    p += 2;
+    while (*p != ']') {
+        if (*p == '[' || *p == '-' ||
+            *p == '.' || *p == ',')
+            return -1;
+        res = continuous_count(p);
+        if (*p == '>') offset += res;
+        else if (*p == '<') offset -= res;
+        else if (*p == '+') {
+            index[_index] = offset;
+            mult[_index] = res;
+            _index++;
+        }
+        p += res;
+   }
+   if (offset != 0) return -1;
+   return _index;
+}
+
+
 int main(int argc, char *argv[])
 {
 	if (argc < 2) err("Usage: jit-x64 <inputfile>");
@@ -36,12 +71,13 @@ int main(int argc, char *argv[])
 	|  push PTR
 	|  mov  PTR, rdi      // rdi store 1st argument
     
-    int count = 1;
-	for (char *p = read_file(argv[1]); *p; p++) {
-        if(*p == *(p+1) && (*p == '+' || *p == '-' || *p == '>' || *p == '<')) {
-            ++count;
-            continue;
-        } else {
+    int count = 1, index[64], mult[64];
+    
+    for (char *p = read_file(argv[1]); *p; p++) {
+        if(*p == '+' || *p == '-' || *p == '>' || *p == '<') {
+            count = continuous_count(p);
+            p += (count-1);
+        }
 		switch (*p) {
 		case '>':
 			|  add  PTR,  count
@@ -68,16 +104,28 @@ int main(int argc, char *argv[])
 			// Each loop gets two pclabels: at the beginning and end.
 			// We store pclabel offsets in a stack to link the loop
 			// begin and end together.
-            if (*(p+1) == '-' && *(p+2) == ']') {
-                |  mov byte [PTR], 0
-                p+=2;
+            
+            count = check_loops(p, index, mult);
+            for(int i=0; i<count; i++) {
+                |  mov  al, mult[i]
+                |  imul byte [PTR]
+                |  add PTR,  index[i]
+                |  add [PTR], al
+                |  sub PTR,  index[i]
+            }
+            
+            if (count < 0) {
+                maxpc += 2;
+			    *top++ = maxpc;
+			    dasm_growpc(&state, maxpc);
+			    |  cmp  byte [PTR], 0
+			    |  je   =>(maxpc-2)
+			    |=>(maxpc-1):
             } else {
-			maxpc += 2;
-			*top++ = maxpc;
-			dasm_growpc(&state, maxpc);
-			|  cmp  byte [PTR], 0
-			|  je   =>(maxpc-2)
-			|=>(maxpc-1):
+                while (*p != ']') {
+                    ++p;
+                }
+                | mov byte [PTR], 0
             }
 			break;
 		case ']':
@@ -88,15 +136,13 @@ int main(int argc, char *argv[])
 			|=>(*top-2):
 			break;
 		}
-        count = 1;
-        }
 	}
 
 	// Function epilogue.
 	|  pop  PTR
 	|  ret
-
-	void (*fptr)(char*) = jitcode(&state);
+	
+    void (*fptr)(char*) = jitcode(&state);
 	char *mem = calloc(30000, 1);
 	fptr(mem);
 	free(mem);

@@ -54,7 +54,7 @@ jit-x64: dynasm-driver.c jit-x64.h
 jit-x64.h: jit-x64.dasc
 	        $(LUA) dynasm/dynasm.lua -o $@ jit-x64.dasc
 run-jit-x64: jit-x64
-	./jit-x64 progs/hello.b && objdump -D -b binary \
+	./jit-x64 progs/mandelbrot.b && objdump -D -b binary \
 		-mi386 -Mx86-64 /tmp/jitcode
 
 jit0-arm: tests/jit0-arm.c
@@ -70,15 +70,9 @@ run-jit-arm: jit-arm
 	$(CROSS_COMPILE)objdump -D -b binary -marm /tmp/jitcode
 
 bench-jit-x86: jit-x86
-	@echo
-	@echo Executing Brainf*ck benchmark suite. Be patient.
-	@echo
 	@env PATH='.:${PATH}' BF_RUN='$<' tests/bench.py
 
 bench-jit-x64: jit-x64
-	@echo
-	@echo Executing Brainf*ck benchmark suite. Be patient.
-	@echo
 	@env PATH='.:${PATH}' BF_RUN='$<' tests/bench.py
 
 test: test_stack jit0-x64 jit0-arm
@@ -89,8 +83,17 @@ test: test_stack jit0-x64 jit0-arm
 test_stack: tests/test_stack.c
 	$(CC) $(CFLAGS) -o $@ $^
 
+plot:
+	for i in `seq 1 1 100`; do \
+	PATH='.:${PATH}' BF_RUN='jit-x64' tests/bench.py; \
+	done > opt.txt
+	$(CC) $(CFLAGS) calculate.c -o calculate
+	./calculate
+	gnuplot plot.gp
+	eog runtime.png
+
 clean:
 	$(RM) $(BIN) \
 	      hello-x86 hello-x64 hello-arm hello.s \
 	      test_stack jit0-x64 jit0-arm \
-	      jit-x86.h jit-x64.h jit-arm.h
+	      jit-x86.h jit-x64.h jit-arm.h opt.txt output.txt calculate

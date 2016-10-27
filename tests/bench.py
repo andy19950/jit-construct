@@ -20,13 +20,17 @@ expected_output_hashes = {
 
 for filename, expected_hash in expected_output_hashes.iteritems():
     stdin = ''
+    table = {'awib', 'hanoi', 'mandelbrot'}
     if isinstance(filename, tuple):
         filename, stdin = filename
     output, elapsed = get_output(filename, stdin)
     actual_hash = hashlib.sha1(output).hexdigest()
-    print filename.ljust(24),
+    #print filename.ljust(24),
     if actual_hash == expected_hash:
-        print 'GOOD\t%.1fms' % (elapsed * 1000)
+        #print 'GOOD\t%.1fms' % (elapsed * 1000)
+        for name in table:
+            if name in filename:
+                print "%s %.1f" %(str(name), elapsed * 1000)
     else:
         print "bad output: expected %s got %s" % (
             expected_hash, actual_hash)

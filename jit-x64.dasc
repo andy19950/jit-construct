@@ -1,5 +1,7 @@
 #include <stdint.h>
+#include <string.h>
 #include "util.h"
+
 
 |.arch x64
 |.actionlist actions
@@ -56,6 +58,20 @@ int check_loops(char *p,int *index,int *mult)
    return _index;
 }
 
+int scan_loop(char *p) {
+    int count = 0;
+    char dirction = *p;
+    if (dirction != '>' && dirction != '<')
+        return 0;
+    while (*p != ']') {
+        if(*p == dirction)
+            count++;
+        else
+            return 0;
+        p++;
+    }
+    return count;
+}
 
 int main(int argc, char *argv[])
 {
@@ -66,11 +82,15 @@ int main(int argc, char *argv[])
 	unsigned int maxpc = 0;
 	int pcstack[MAX_NESTING];
 	int *top = pcstack, *limit = pcstack + MAX_NESTING;
+    int *start = (int *) malloc (sizeof(int));
+    int *end = (int *) malloc (sizeof(int));
+    int diff;
 
 	// Function prologue.
 	|  push PTR
 	|  mov  PTR, rdi      // rdi store 1st argument
     
+
     int count = 1, index[64], mult[64];
     
     for (char *p = read_file(argv[1]); *p; p++) {
@@ -115,12 +135,49 @@ int main(int argc, char *argv[])
             }
             
             if (count < 0) {
-                maxpc += 2;
-			    *top++ = maxpc;
-			    dasm_growpc(&state, maxpc);
-			    |  cmp  byte [PTR], 0
-			    |  je   =>(maxpc-2)
-			    |=>(maxpc-1):
+                count = scan_loop(p+1);
+                if(count == 0) {
+                    maxpc += 2;
+			        *top++ = maxpc;
+			        dasm_growpc(&state, maxpc);
+			        |  cmp  byte [PTR], 0
+			        |  je   =>(maxpc-2)
+			        |=>(maxpc-1):
+                } else if (*(p+1) == '<') {
+                    |  mov  [end], PTR
+                    diff = ((void *)end - memrchr(start, 0, end-start+1));
+                    |  sub  PTR, diff
+/*
+                    |  mov  rdx, PTR
+                    |  sub  rdx, rdi
+                    |  inc  rdx
+                    |  mov  eax, 0
+                    |  push rdi
+                    |  mov  r1, memrchr
+                    |  call r1
+                    |  mov  rdx, PTR
+                    |  sub  rdx, rdi
+                    |  sub  PTR, rdx
+                    |  pop  rdi
+*/
+                    p += count+1;
+                } else if (*(p+1) == '>') {
+                    |  mov [end], PTR
+                    diff = (memchr(end, 0, sizeof(*start)) - (void *)end);
+                    |  add PTR, diff
+/*
+                    |  mov rdx, 30000
+                    |  mov eax, 0
+                    |  push rdi
+                    |  mov  rdi, PTR
+                    |  mov  r1, memchr
+                    |  call r1
+                    |  sub  rdi, PTR
+                    |  add  PTR, rdi
+                    |  pop  rdi
+*/
+                    p += count+1;
+                }
             } else {
                 while (*p != ']') {
                     ++p;
@@ -141,7 +198,8 @@ int main(int argc, char *argv[])
 	// Function epilogue.
 	|  pop  PTR
 	|  ret
-	
+    
+    printf("compile successful\n");	
     void (*fptr)(char*) = jitcode(&state);
 	char *mem = calloc(30000, 1);
 	fptr(mem);
